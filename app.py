@@ -31,27 +31,41 @@ def classify_trend(df):
     swings = swings[['timestamp', 'high', 'low', 'swing_high', 'swing_low']]
     labels = []
     last_high = last_low = None
+    trend_status = "No Trend"
+    bos = False
+    choch = False
 
     for i in range(len(swings)):
         row = swings.iloc[i]
         if row['swing_high']:
             label = 'HH' if last_high is None or row['high'] > last_high else 'LH'
+            bos = True if label == 'HH' and last_high is not None else bos
+            choch = True if label == 'LH' and last_high is not None else choch
             last_high = row['high']
         elif row['swing_low']:
             label = 'HL' if last_low is None or row['low'] > last_low else 'LL'
+            bos = True if label == 'LL' and last_low is not None else bos
+            choch = True if label == 'HL' and last_low is not None else choch
             last_low = row['low']
         labels.append(label)
 
     swings['label'] = labels
     last_labels = swings['label'].tail(4).tolist()
     if len(last_labels) < 3:
-        return "No Trend"
-    if last_labels[-3:] == ['HH', 'HL', 'HH'] or last_labels[-3:] == ['HL', 'HH', 'HL']:
-        return 'Uptrend'
+        trend_status = "No Trend"
+    elif last_labels[-3:] == ['HH', 'HL', 'HH'] or last_labels[-3:] == ['HL', 'HH', 'HL']:
+        trend_status = 'Uptrend'
     elif last_labels[-3:] == ['LL', 'LH', 'LL'] or last_labels[-3:] == ['LH', 'LL', 'LH']:
-        return 'Downtrend'
+        trend_status = 'Downtrend'
     else:
-        return 'Trend Broken'
+        trend_status = 'Trend Broken'
+
+    if choch and not bos:
+        trend_status = 'Change of Character'
+    elif bos and not choch:
+        trend_status = trend_status + ' (BoS)'
+
+    return trend_status
 
 def check_cradle_setup(df):
     ema10 = df['close'].ewm(span=10).mean()
@@ -104,6 +118,24 @@ if st.button("Run Screener"):
         result_df = analyze_setups(symbols, selected_timeframes)
 
         st.subheader("📊 Valid Cradle Trade Opportunities")
-        st.dataframe(result_df, use_container_width=True)
+
+        if not result_df.empty:
+            uptrend_df = result_df[result_df['Trend'].str.contains('Uptrend')]
+            downtrend_df = result_df[result_df['Trend'].str.contains('Downtrend')]
+            choch_df = result_df[result_df['Trend'].str.contains('Change of Character')]
+
+            if not uptrend_df.empty:
+                st.markdown("### 🟢 Uptrend (with Cradle Setup)")
+                st.dataframe(uptrend_df, use_container_width=True)
+
+            if not downtrend_df.empty:
+                st.markdown("### 🔴 Downtrend (with Cradle Setup)")
+                st.dataframe(downtrend_df, use_container_width=True)
+
+            if not choch_df.empty:
+                st.markdown("### ⚠️ Change of Character (Potential Early Setup)")
+                st.dataframe(choch_df, use_container_width=True)
+        else:
+            st.warning("No valid setups found.")
 
         st.success("Scan complete!")
